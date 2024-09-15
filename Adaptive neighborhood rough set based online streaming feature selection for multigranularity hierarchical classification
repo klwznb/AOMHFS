@@ -1,0 +1,156 @@
+function [ selectedFeatures,time ] = AOMHFS(X,Y, tree)
+%
+% Output:  selectedFeatures  the index of selected features
+%          time      running time
+% Input:   X         data samples vector
+%          Y         label vector
+%          tree      tree hierarchy of data classes
+%
+
+dep_Mean=0;
+[~,p]=size(X);
+mode=zeros(1,p);
+dep_Old=0;
+depArray=zeros(1,p);
+start=tic;
+
+for i=1:p 
+    disp(find(mode==1))
+    col=X(:,i);
+    dep_single=dep(col,Y, tree);
+    depArray(1,i)=dep_single;
+    if i<=2
+        mode(1,i)=1;
+        continue;
+    end
+    if  dep_single>=dep_Mean
+        mode(1,i)=1;
+        cols=X(:,mode==1);
+        dep_New=dep(cols,Y, tree);
+        DSig = (dep_New-dep_Old)/dep_Old;%Online significance analysis
+        FSig = dep_New/(dep_Old+dep_single);
+        if  DSig>0||FSig>1
+            dep_Old=dep_New;
+            dep_Mean = dep_Old/sum(mode);
+        else
+            [index_del] = HRSig(X,Y,mode,i, tree);%Online redundancy analysis
+            mode(1,index_del)=0;
+            dep_Del=dep(X(:,mode==1),Y, tree);
+            if dep_Del>=dep_Old
+                dep_Old=dep_Del;
+                dep_Mean = dep_Old/sum(mode);
+            else
+                mode(1,index_del)=1;
+            end
+        end
+    end
+end
+selectedFeatures=find(mode==1);
+time=toc(start);
+end
+
+
+
+function [depend]=dep(data,Y, tree)
+[n,~]=size(data);
+Card=0;
+sample_sel=1:n;
+mode_tree=zeros(1,n);
+mode_tree_neighbour=zeros(1,n);
+cnt = 0;
+dep_sum=0;
+for t=1:n
+    if mode_tree(t) == 1
+        continue;
+    else
+        cnt=cnt+1;
+    end
+    a=t;
+    y = Y(sample_sel(t));
+    while a<n+1
+        if tree(Y(a,1),1) == tree(y,1)%Same LCA
+            mode_tree(1,a)=1;
+            mode_tree_neighbour(1,a)=1;
+            a = a+1;
+        else
+            a = a+1;
+            continue;
+        end
+    end
+    data_bro = data(mode_tree_neighbour==1,:);%All neighbourhood samples
+    D = pdist(data_bro,'euclidean');
+    DArray=squareform(D);
+    labels = Y(mode_tree_neighbour==1);
+    mode_tree_neighbour=zeros(1,n);
+    [l,~]=size(data_bro);
+    for i=1:l
+        d=DArray(:,i);
+        class=labels(i,1);
+        Card=Card+card(d,labels,class,l);
+    end
+    dep_neighbour=Card/l;
+    dep_sum=dep_sum+dep_neighbour;
+    Card=0;
+end
+depend = dep_sum/cnt;
+end
+
+
+
+function [s]=card(sets,labels,class,l)
+[D,I]=sort(sets);
+T=0;
+Num=0;
+last_distance=0;
+if D(2,1)>=0
+    last_distance=D(2,1);
+end
+for j=2:l
+    Adistance=D(j,1)/(j-1);
+    ind=I(j,1);
+    if Adistance==0||Adistance<=last_distance
+        last_distance=Adistance;
+        T=T+1;
+        if labels(ind,1)==class
+            Num=Num+1;
+        end
+    else
+        break;
+    end
+end
+s=Num/T;
+end
+
+
+
+function [index_del] = HRSig(X,Y,mode,i,tree)
+%Finding redundant features
+B=zeros(1,length(mode));
+R=mode;
+T=mode;
+T(1,i)=0;
+indexs=find(T==1);
+Num=length(indexs);
+for i=1:Num
+    if sig(X,Y,R,indexs(i),tree)<=0
+        B(1,indexs(i))=1;
+        R(1,indexs(i))=0;
+    else
+        R(1,indexs(i))=1;
+    end   
+index_del = B==1;
+end
+
+
+
+function [s]= sig(X,Y,mode,f_i,tree)
+	% calculate the significance of feature f_i 
+	[d_B]=dep(X(:,mode==1),Y,tree);
+	mode(1,f_i)=0;
+	[d_F]=dep(X(:,mode==1),Y,tree);
+	s=(d_B-d_F);
+end
+
+
+
+
